@@ -18,10 +18,10 @@ cd output
 $LLVM_DIR/bin/clang -O0 -S -emit-llvm ../inputExamples/inputTraversal1.c -o inputTraversal1.ll
 $LLVM_DIR/bin/opt -load-pass-plugin ../build/lib/libInstructionTraversal.so -passes=InstructionTraversal -disable-output inputTraversal1.ll 1> memPrint1.txt 2> notMemPrint2.txt
 ```
-Note! At now output will be in std error
 
 
 ## Future
-There is no future (yet) :(
----
-Will add later
+* Add or rewrite through [MemorySSA](https://llvm.org/docs/MemorySSA.html) analysis
+* Add address memory info printing (is not working correctly yet)
+* Mb rewrite potentially to Rust
+* ...
