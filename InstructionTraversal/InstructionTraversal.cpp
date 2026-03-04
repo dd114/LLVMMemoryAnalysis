@@ -6,47 +6,194 @@ using namespace llvm;
 
 namespace {
 
-// This method implements what the pass does
-// void visitor(Function &F) {
-//     errs() << "Hello from: "<< F.getName() << "\n";
-//     errs() << "number of arguments: " << F.arg_size() << "\n";
-// }
-
 void makeLogs(Function &F) {
-  errs() << "\nFunction name: "<< F.getName() << "; "<< "Number of arguments: " << F.arg_size() << "\n";
+  const DataLayout &DL = F.getParent()->getDataLayout();
+
+  outs() << "\n=============================\n";
+  outs() << "Function: " << F.getName() << "; "<< "Number of arguments: " << F.arg_size() << "\n";
+  outs() << "=============================\n";
 
   for (auto &BB : F) {
+      for (auto &Inst : BB) {
 
+          if (!Inst.mayReadOrWriteMemory() && !isa<AllocaInst>(&Inst) && !isa<GetElementPtrInst>(&Inst)){
+                errs() << "Not memory interaction" << "\n";
+                errs() << "Opcode: " << Inst.getOpcodeName() << "\n";
+                errs() << "Full IR: ";
+                Inst.print(errs());
+                errs() << "\n---------------------------\n";
+                continue;
+              }
 
-    for (auto &Inst : BB) {
-      
-      // 1. Broad check: Does this instruction interact with memory at all?
-      if (Inst.mayReadOrWriteMemory()) {
-          
-          // Print the instruction's opcode name (e.g., "load", "store", "call")
-          // outs() << "Name Op is " << Inst.getName() << "\n";
-          outs() << "Memory Op [" << Inst.getOpcodeName() << "]: ";
-          
-          // 2. Extract specific details for standard Load/Store
-          if (auto *LI = dyn_cast<LoadInst>(&Inst)) {
-              outs() << "Reads from: " << *LI->getPointerOperand() 
-                    << " (Align: " << LI->getAlign().value() << ")";
-          } 
-          else if (auto *SI = dyn_cast<StoreInst>(&Inst)) {
-              outs() << "Writes " << *SI->getValueOperand() 
-                    << " to: " << *SI->getPointerOperand() 
-                    << " (Align: " << SI->getAlign().value() << ")";
-          } 
-          else {
-              // Handles other memory ops like 'call', 'atomicrmw', etc.
-              outs() << "Complex memory interaction (e.g. Call/Atomic)";
-          }
-          
+          outs() << "\n=== Memory Instruction ===\n";
+          outs() << "Opcode: " << Inst.getOpcodeName() << "\n";
+
+          outs() << "Full IR: ";
+          Inst.print(outs());
           outs() << "\n";
-      }
 
-    }
+          // ---------- LOAD ----------
+          if (auto *LI = dyn_cast<LoadInst>(&Inst)) {
+
+              Value *Ptr = LI->getPointerOperand();
+              Type *Ty = LI->getType();
+
+              outs() << "Kind: Load\n";
+
+              outs() << "Pointer: ";
+              Ptr->print(outs());
+              outs() << "\n";
+
+              outs() << "Value Type: ";
+              Ty->print(outs());
+              outs() << "\n";
+
+              uint64_t Size = DL.getTypeStoreSize(Ty);
+              outs() << "Access Size: " << Size << " bytes\n";
+
+              outs() << "Alignment: "
+                      << LI->getAlign().value() << "\n";
+
+              PointerType *PT =
+                  cast<PointerType>(Ptr->getType());
+              outs() << "Address Space: "
+                      << PT->getAddressSpace() << "\n";
+
+              if (LI->isVolatile())
+                  outs() << "Volatile: yes\n";
+
+              if (LI->isAtomic())
+                  outs() << "Atomic Ordering: "
+                          << static_cast<int>(LI->getOrdering()) << "\n";
+          }
+
+          // ---------- STORE ----------
+          if (auto *SI = dyn_cast<StoreInst>(&Inst)) {
+
+              Value *Ptr = SI->getPointerOperand();
+              Value *Val = SI->getValueOperand();
+              Type *Ty = Val->getType();
+
+              outs() << "Kind: Store\n";
+
+              outs() << "Pointer: ";
+              Ptr->print(outs());
+              outs() << "\n";
+
+              outs() << "Stored Type: ";
+              Ty->print(outs());
+              outs() << "\n";
+
+              uint64_t Size = DL.getTypeStoreSize(Ty);
+              outs() << "Access Size: " << Size << " bytes\n";
+
+              outs() << "Alignment: "
+                      << SI->getAlign().value() << "\n";
+
+              PointerType *PT =
+                  cast<PointerType>(Ptr->getType());
+              outs() << "Address Space: "
+                      << PT->getAddressSpace() << "\n";
+
+              if (SI->isVolatile())
+                  outs() << "Volatile: yes\n";
+
+              if (SI->isAtomic())
+                  outs() << "Atomic Ordering: "
+                          << static_cast<int>(SI->getOrdering()) << "\n";
+          }
+
+          // ---------- ALLOCA ----------
+          if (auto *AI = dyn_cast<AllocaInst>(&Inst)) {
+
+              outs() << "Kind: Alloca\n";
+
+              outs() << "Allocated Type: ";
+              AI->getAllocatedType()->print(outs());
+              outs() << "\n";
+
+              outs() << "Alignment: "
+                      << AI->getAlign().value() << "\n";
+
+              outs() << "Address Space: "
+                      << AI->getAddressSpace() << "\n";
+          }
+
+          // ---------- GEP ----------
+          if (auto *GEP = dyn_cast<GetElementPtrInst>(&Inst)) {
+
+              outs() << "Kind: GetElementPtr\n";
+
+              outs() << "Base Pointer: ";
+              GEP->getPointerOperand()->print(outs());
+              outs() << "\n";
+
+              outs() << "Result Type: ";
+              GEP->getType()->print(outs());
+              outs() << "\n";
+          }
+
+          // ---------- CALL ----------
+          if (auto *CB = dyn_cast<CallBase>(&Inst)) {
+
+              outs() << "Kind: Call\n";
+
+              if (Function *Callee =
+                  CB->getCalledFunction()) {
+                  outs() << "Callee: "
+                          << Callee->getName() << "\n";
+              } else {
+                  outs() << "Indirect Call\n";
+              }
+
+              outs() << "Memory Effects: (see call intrinsics)\n";
+
+              if (CB->onlyReadsMemory())
+                  outs() << "Only Reads Memory\n";
+
+              if (CB->onlyWritesMemory())
+                  outs() << "Only Writes Memory\n";
+
+              if (CB->doesNotAccessMemory())
+                  outs() << "No Memory Access\n";
+          }
+
+          // ---------- ATOMIC RMW ----------
+          if (auto *ARMW =
+              dyn_cast<AtomicRMWInst>(&Inst)) {
+
+              outs() << "Kind: AtomicRMW\n";
+              outs() << "Operation: "
+                      << ARMW->getOperation() << "\n";
+          }
+
+          // ---------- CMPXCHG ----------
+          if (auto *CX =
+              dyn_cast<AtomicCmpXchgInst>(&Inst)) {
+
+              outs() << "Kind: AtomicCmpXchg\n";
+              outs() << "Success Ordering: "
+                      << static_cast<int>(CX->getSuccessOrdering()) << "\n";
+              outs() << "Failure Ordering: "
+                      << static_cast<int>(CX->getFailureOrdering()) << "\n";
+          }
+
+          // ---------- METADATA ----------
+          SmallVector<std::pair<unsigned, MDNode *>, 8> MDs;
+          Inst.getAllMetadata(MDs);
+
+          if (!MDs.empty()) {
+              outs() << "Metadata:\n";
+              for (auto &MD : MDs) {
+                  outs() << "  Kind ID: "
+                          << MD.first << "\n";
+              }
+          }
+
+          outs() << "---------------------------\n";
+      }
   }
+
 }
 
 // New PM implementation
