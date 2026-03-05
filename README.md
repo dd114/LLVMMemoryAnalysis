@@ -25,6 +25,6 @@ $LLVM_DIR/bin/opt -load-pass-plugin ../build/lib/libInstructionTraversal.so -pas
 * Potentially add Alias analysis
 * Potentially add MemoryLocation analysis
 * Potentially add ScalarEvolution analysis
-* Add runtime address memory info printing through IRBuilder code instrumentation (is not ready yet)
+* Add runtime address memory info printing through IRBuilder code instrumentation (in progress...)
 * Mb rewrite potentially to fancy Rust
 * ...
