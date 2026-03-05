@@ -1,29 +1,39 @@
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Plugins/PassPlugin.h"
+#include "llvm/IR/PassManager.h"
+#include "llvm/IR/Instructions.h"
+#include "llvm/IR/DataLayout.h"
+#include "llvm/Analysis/MemorySSA.h"
+#include "llvm/Analysis/MemorySSAUpdater.h"
+#include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Support/raw_ostream.h"
 
 using namespace llvm;
 
 namespace {
 
-void makeLogs(Function &F) {
+void makeLogs(Function &F, llvm::MemorySSA &MSSA) {
   const DataLayout &DL = F.getParent()->getDataLayout();
 
   outs() << "\n=============================\n";
-  outs() << "Function: " << F.getName() << "; "<< "Number of arguments: " << F.arg_size() << "\n";
+  outs() << "Function: " << F.getName()
+         << "; Number of arguments: " << F.arg_size() << "\n";
   outs() << "=============================\n";
 
   for (auto &BB : F) {
       for (auto &Inst : BB) {
 
-          if (!Inst.mayReadOrWriteMemory() && !isa<AllocaInst>(&Inst) && !isa<GetElementPtrInst>(&Inst)){
-                errs() << "Not memory interaction" << "\n";
+          if (!Inst.mayReadOrWriteMemory() &&
+              !isa<AllocaInst>(&Inst) &&
+              !isa<GetElementPtrInst>(&Inst)) {
+
+                errs() << "Not memory interaction\n";
                 errs() << "Opcode: " << Inst.getOpcodeName() << "\n";
                 errs() << "Full IR: ";
                 Inst.print(errs());
                 errs() << "\n---------------------------\n";
                 continue;
-              }
+          }
 
           outs() << "\n=== Memory Instruction ===\n";
           outs() << "Opcode: " << Inst.getOpcodeName() << "\n";
@@ -32,7 +42,130 @@ void makeLogs(Function &F) {
           Inst.print(outs());
           outs() << "\n";
 
-          // ---------- LOAD ----------
+          outs() << "Parent BB: ";
+          Inst.getParent()->printAsOperand(outs(), false);
+          outs() << "\n";
+
+
+    // ====== MEMORYSSA INFORMATION
+
+          MemoryAccess *MA = MSSA.getMemoryAccess(&Inst);
+
+          if (MA) {
+
+              outs() << "\n--- MemorySSA ---\n";
+
+              if (auto *MU = dyn_cast<MemoryUse>(MA)) {
+
+                  outs() << "MemorySSA Node: MemoryUse\n";
+
+                  MemoryAccess *Def = MU->getDefiningAccess();
+
+                  outs() << "Depends on: ";
+                  if (Def)
+                      Def->print(outs());
+                  else
+                      outs() << "null";
+
+                  outs() << "\n";
+
+              } else if (auto *MD = dyn_cast<MemoryDef>(MA)) {
+
+                  outs() << "MemorySSA Node: MemoryDef\n";
+
+                  MemoryAccess *Def = MD->getDefiningAccess();
+
+                  outs() << "Previous Def: ";
+                  if (Def)
+                      Def->print(outs());
+                  else
+                      outs() << "null";
+
+                  outs() << "\n";
+
+              } else if (auto *MP = dyn_cast<MemoryPhi>(MA)) {
+
+                  outs() << "MemorySSA Node: MemoryPhi\n";
+
+                  outs() << "Incoming values:\n";
+
+                  for (unsigned i = 0;
+                       i < MP->getNumIncomingValues(); ++i) {
+
+                      outs() << "  From BB ";
+
+                      MP->getIncomingBlock(i)
+                          ->printAsOperand(outs(), false);
+
+                      outs() << " : ";
+
+                      MP->getIncomingValue(i)->print(outs());
+
+                      outs() << "\n";
+                  }
+              }
+
+              /* ---------- USERS OF MEMORY ACCESS ---------- */
+
+              outs() << "MemorySSA Users:\n";
+
+              for (auto *U : MA->users()) {
+
+                  outs() << "  ";
+
+                  if (auto *MAU = dyn_cast<MemoryUseOrDef>(U)) {
+                      if (auto *I = MAU->getMemoryInst()) {
+
+                          I->print(outs());
+
+                      } else {
+
+                          MAU->print(outs());
+
+                      }
+                  } else {
+
+                      U->print(outs());
+
+                  }
+
+                  outs() << "\n";
+              }
+
+              /* ---------- WALK DEF CHAIN ---------- */
+
+              outs() << "Memory Def Chain:\n";
+
+              MemoryAccess *Walker = MA;
+
+              int depth = 0;
+
+              while (Walker && depth < 5) {
+
+                  outs() << "  ";
+
+                  Walker->print(outs());
+
+                  outs() << "\n";
+
+                  if (auto *UD =
+                      dyn_cast<MemoryUseOrDef>(Walker))
+                      Walker = UD->getDefiningAccess();
+                  else
+                      break;
+
+                  depth++;
+              }
+
+              outs() << "----------------------\n";
+          }
+          else {
+              outs() << "No MemorySSA node\n";
+          }
+
+
+    // ====== INSTRUCTION-SPECIFIC INFORMATION
+
           if (auto *LI = dyn_cast<LoadInst>(&Inst)) {
 
               Value *Ptr = LI->getPointerOperand();
@@ -52,26 +185,27 @@ void makeLogs(Function &F) {
               outs() << "Access Size: " << Size << " bytes\n";
 
               outs() << "Alignment: "
-                      << LI->getAlign().value() << "\n";
+                     << LI->getAlign().value() << "\n";
 
-              PointerType *PT =
-                  cast<PointerType>(Ptr->getType());
+              PointerType *PT = cast<PointerType>(Ptr->getType());
+
               outs() << "Address Space: "
-                      << PT->getAddressSpace() << "\n";
+                     << PT->getAddressSpace() << "\n";
 
               if (LI->isVolatile())
                   outs() << "Volatile: yes\n";
 
               if (LI->isAtomic())
                   outs() << "Atomic Ordering: "
-                          << static_cast<int>(LI->getOrdering()) << "\n";
+                         << static_cast<int>(LI->getOrdering())
+                         << "\n";
           }
 
-          // ---------- STORE ----------
           if (auto *SI = dyn_cast<StoreInst>(&Inst)) {
 
               Value *Ptr = SI->getPointerOperand();
               Value *Val = SI->getValueOperand();
+
               Type *Ty = Val->getType();
 
               outs() << "Kind: Store\n";
@@ -85,124 +219,42 @@ void makeLogs(Function &F) {
               outs() << "\n";
 
               uint64_t Size = DL.getTypeStoreSize(Ty);
-              outs() << "Access Size: " << Size << " bytes\n";
+
+              outs() << "Access Size: "
+                     << Size << " bytes\n";
 
               outs() << "Alignment: "
-                      << SI->getAlign().value() << "\n";
+                     << SI->getAlign().value() << "\n";
 
-              PointerType *PT =
-                  cast<PointerType>(Ptr->getType());
+              PointerType *PT = cast<PointerType>(Ptr->getType());
+
               outs() << "Address Space: "
-                      << PT->getAddressSpace() << "\n";
+                     << PT->getAddressSpace() << "\n";
 
               if (SI->isVolatile())
                   outs() << "Volatile: yes\n";
 
               if (SI->isAtomic())
                   outs() << "Atomic Ordering: "
-                          << static_cast<int>(SI->getOrdering()) << "\n";
-          }
-
-          // ---------- ALLOCA ----------
-          if (auto *AI = dyn_cast<AllocaInst>(&Inst)) {
-
-              outs() << "Kind: Alloca\n";
-
-              outs() << "Allocated Type: ";
-              AI->getAllocatedType()->print(outs());
-              outs() << "\n";
-
-              outs() << "Alignment: "
-                      << AI->getAlign().value() << "\n";
-
-              outs() << "Address Space: "
-                      << AI->getAddressSpace() << "\n";
-          }
-
-          // ---------- GEP ----------
-          if (auto *GEP = dyn_cast<GetElementPtrInst>(&Inst)) {
-
-              outs() << "Kind: GetElementPtr\n";
-
-              outs() << "Base Pointer: ";
-              GEP->getPointerOperand()->print(outs());
-              outs() << "\n";
-
-              outs() << "Result Type: ";
-              GEP->getType()->print(outs());
-              outs() << "\n";
-          }
-
-          // ---------- CALL ----------
-          if (auto *CB = dyn_cast<CallBase>(&Inst)) {
-
-              outs() << "Kind: Call\n";
-
-              if (Function *Callee =
-                  CB->getCalledFunction()) {
-                  outs() << "Callee: "
-                          << Callee->getName() << "\n";
-              } else {
-                  outs() << "Indirect Call\n";
-              }
-
-              outs() << "Memory Effects: (see call intrinsics)\n";
-
-              if (CB->onlyReadsMemory())
-                  outs() << "Only Reads Memory\n";
-
-              if (CB->onlyWritesMemory())
-                  outs() << "Only Writes Memory\n";
-
-              if (CB->doesNotAccessMemory())
-                  outs() << "No Memory Access\n";
-          }
-
-          // ---------- ATOMIC RMW ----------
-          if (auto *ARMW =
-              dyn_cast<AtomicRMWInst>(&Inst)) {
-
-              outs() << "Kind: AtomicRMW\n";
-              outs() << "Operation: "
-                      << ARMW->getOperation() << "\n";
-          }
-
-          // ---------- CMPXCHG ----------
-          if (auto *CX =
-              dyn_cast<AtomicCmpXchgInst>(&Inst)) {
-
-              outs() << "Kind: AtomicCmpXchg\n";
-              outs() << "Success Ordering: "
-                      << static_cast<int>(CX->getSuccessOrdering()) << "\n";
-              outs() << "Failure Ordering: "
-                      << static_cast<int>(CX->getFailureOrdering()) << "\n";
-          }
-
-          // ---------- METADATA ----------
-          SmallVector<std::pair<unsigned, MDNode *>, 8> MDs;
-          Inst.getAllMetadata(MDs);
-
-          if (!MDs.empty()) {
-              outs() << "Metadata:\n";
-              for (auto &MD : MDs) {
-                  outs() << "  Kind ID: "
-                          << MD.first << "\n";
-              }
+                         << static_cast<int>(SI->getOrdering())
+                         << "\n";
           }
 
           outs() << "---------------------------\n";
       }
   }
-
 }
 
 // New PM implementation
 struct InstructionTraversal : PassInfoMixin<InstructionTraversal> {
   // Main entry point, takes IR unit to run the pass on (&F) and the
   // corresponding pass manager (to be queried if need be)
-  PreservedAnalyses run(Function &F, FunctionAnalysisManager &) {
+  PreservedAnalyses run(Function &F, FunctionAnalysisManager &FAM) {
     // visitor(F);
-    makeLogs(F);
+
+    auto &MSSA = FAM.getResult<MemorySSAAnalysis>(F).getMSSA();
+
+    makeLogs(F, MSSA);
 
     return PreservedAnalyses::all();
   }
