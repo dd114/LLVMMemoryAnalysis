@@ -20,8 +20,8 @@ $LLVM_DIR/bin/opt -load-pass-plugin ../build/lib/libInstructionTraversal.so -pas
 ```
 
 
-## Future
+## Future plans
 * Add or rewrite through [MemorySSA](https://llvm.org/docs/MemorySSA.html) analysis
-* Add address memory info printing (is not working correctly yet)
-* Mb rewrite potentially to Rust
+* Add address memory info printing through IRBuilder code instrumentation (is not ready yet)
+* Mb rewrite potentially to fancy Rust
 * ...
