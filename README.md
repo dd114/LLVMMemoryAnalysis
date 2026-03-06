@@ -15,25 +15,25 @@ ninja -C build
 mkdir -p output
 cd output
 
-$LLVM_DIR/bin/clang -O0 -S -emit-llvm ../inputExamples/inputTraversal1.c -o inputTraversal1.ll
+$LLVM_DIR/bin/clang -O0 -S -emit-llvm ../inputExamples/input1.c -o input1.ll
 ```
 
 ## Apply plugin of analysis pass to LLVM IR
 ```bash
-$LLVM_DIR/bin/opt -load-pass-plugin ../build/lib/libInstructionTraversal.so -passes=InstructionTraversal -disable-output inputTraversal1.ll 1> memPrint1.txt 2> notMemPrint1.txt
+$LLVM_DIR/bin/opt -load-pass-plugin ../build/lib/libInstructionTraversal.so -passes=InstructionTraversal -disable-output input1.ll 1> memPrint1.txt 2> notMemPrint1.txt
 ```
 
 ## Apply plugin of transformation pass to LLVM IR
 ```bash
-$LLVM_DIR/bin/opt -load-pass-plugin ../build/lib/libCodeInstrumentation.so -passes=CodeInstrumentation -S inputTraversal1.ll -o codeInstrumentation1.ll 1> memPrint2.txt 2> notMemPrint2.txt
+$LLVM_DIR/bin/opt -load-pass-plugin ../build/lib/libCodeInstrumentation.so -passes=CodeInstrumentation -S input1.ll -o codeInstrumentation1.ll 1> memPrint2.txt 2> notMemPrint2.txt
 ```
 
-#### Compile LLVM IR code
+#### Interpreter LLVM IR code
 ```bash
 $LLVM_DIR/bin/lli codeInstrumentation1.ll
 ```
 
-#### Interpreter LLVM IR code
+#### Compile LLVM IR code
 ```bash
 $LLVM_DIR/bin/clang codeInstrumentation1.ll -o codeInstrumentation1
 ```
