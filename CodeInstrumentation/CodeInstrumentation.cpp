@@ -80,6 +80,8 @@ void instrumentFunction(Function &F) {
 
     if (!Printf) {
 
+      outs() << "Function creation\n";
+
         FunctionType *PrintfTy =
             FunctionType::get(
                 Type::getInt32Ty(Ctx),
@@ -97,19 +99,19 @@ void instrumentFunction(Function &F) {
 
     auto *LoadFmt = getOrCreateFormat(
         M,
-        "LOAD addr=%p size=%lu align=%lu\n",
+        "LOAD addr=%p type=%s size=%lu align=%lu\n",
         "log_load_fmt"
     );
 
     auto *StoreFmt = getOrCreateFormat(
         M,
-        "STORE addr=%p size=%lu align=%lu\n",
+        "STORE addr=%p type=%s size=%lu align=%lu\n",
         "log_store_fmt"
     );
 
     auto *AllocaFmt = getOrCreateFormat(
         M,
-        "ALLOCA addr=%p size=%lu align=%lu\n",
+        "ALLOCA addr=%p type=%s size=%lu align=%lu\n",
         "log_alloca_fmt"
     );
 
@@ -184,6 +186,14 @@ void instrumentFunction(Function &F) {
                 Info.Pointer,
                 PointerType::getUnqual(Ctx)
             );
+       
+            
+        std::string TypeStr;
+        llvm::raw_string_ostream RSO(TypeStr);
+        Info.ValueType->print(RSO);
+
+        Value *TypeStrVal = Builder.CreateGlobalString(TypeStr);
+
 
         Value *SizeVal =
             ConstantInt::get(
@@ -199,7 +209,7 @@ void instrumentFunction(Function &F) {
 
         Builder.CreateCall(
             Printf,
-            {FmtPtr, PtrCast, SizeVal, AlignVal}
+            {FmtPtr, PtrCast, TypeStrVal, SizeVal, AlignVal}
         );
     }
 
